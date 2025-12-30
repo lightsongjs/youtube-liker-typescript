@@ -297,6 +297,79 @@
             border-radius: 4px;
             margin: 0 4px;
         }
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-overlay.show {
+            display: flex;
+        }
+        .modal {
+            background: #292a2d;
+            border-radius: 8px;
+            padding: 24px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .modal h2 {
+            margin-bottom: 20px;
+            font-size: 20px;
+        }
+        .modal-form {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .modal-form label {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            font-size: 14px;
+            color: #9aa0a6;
+        }
+        .modal-form input {
+            padding: 10px;
+            background: #202124;
+            border: 1px solid #5f6368;
+            border-radius: 4px;
+            color: #e8eaed;
+            font-size: 14px;
+        }
+        .modal-buttons {
+            display: flex;
+            gap: 12px;
+            margin-top: 20px;
+        }
+        .modal-buttons button {
+            flex: 1;
+            padding: 10px;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .modal-buttons .primary {
+            background: #8ab4f8;
+            color: #202124;
+        }
+        .modal-buttons .secondary {
+            background: #3c4043;
+            color: #e8eaed;
+            border: 1px solid #5f6368;
+        }
+        .modal-buttons button:hover {
+            opacity: 0.9;
+        }
     </style>
 </head>
 <body>
@@ -353,6 +426,11 @@
                         </div>
                         <div class="filter-section">
                             <h3>Tags</h3>
+                            <div class="tag-checkbox" onclick="toggleUntaggedFilter()">
+                                <input type="checkbox" id="filter-untagged">
+                                <div class="tag-color-indicator" style="background-color: #5f6368"></div>
+                                <label for="filter-untagged">Untagged</label>
+                            </div>
                             <div id="tagFilters"></div>
                             <button class="add-tag-btn" onclick="showAddTagModal()">+ Add Tag</button>
                         </div>
@@ -374,6 +452,31 @@
         <div><kbd>Enter</kbd> Open video</div>
     </div>
 
+    <!-- Add Tag Modal -->
+    <div id="addTagModal" class="modal-overlay">
+        <div class="modal">
+            <h2>Add New Tag</h2>
+            <form class="modal-form" id="addTagForm" onsubmit="handleAddTag(event)">
+                <label>
+                    Tag Name
+                    <input type="text" id="tagName" placeholder="e.g., Music" required>
+                </label>
+                <label>
+                    Keyboard Shortcut (single character)
+                    <input type="text" id="tagKeystroke" placeholder="e.g., m" maxlength="1" required>
+                </label>
+                <label>
+                    Color
+                    <input type="color" id="tagColor" value="#8ab4f8" required>
+                </label>
+                <div class="modal-buttons">
+                    <button type="button" class="secondary" onclick="closeAddTagModal()">Cancel</button>
+                    <button type="submit" class="primary">Add Tag</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script>
         // Supabase configuration
         const SUPABASE_URL = 'https://xtvusvangjsqxsxcqnte.supabase.co';
@@ -387,8 +490,11 @@
         let selectedIndex = 0;
         let activeFilters = {
             status: ['liked'],
-            tags: []
+            tags: [],
+            untagged: false
         };
+        let lastKeyPress = null;
+        let lastKeyPressTime = 0;
 
         // Authentication
         async function checkAuth() {
@@ -480,7 +586,7 @@
                 <div class="tag-checkbox" onclick="toggleTagFilter(${tag.id})">
                     <input type="checkbox" id="tag-${tag.id}" data-tag-id="${tag.id}">
                     <div class="tag-color-indicator" style="background-color: ${tag.color}"></div>
-                    <label for="tag-${tag.id}">${tag.name}</label>
+                    <label for="tag-${tag.id}">${tag.name} (${tag.keystroke})</label>
                 </div>
             `).join('');
         }
@@ -530,27 +636,55 @@
             renderVideos();
         }
 
-        async function toggleTag(tagId) {
+        async function toggleTag(tagId, bulkMode = false) {
             const video = videos[selectedIndex];
             if (!video) return;
 
             try {
-                const hasTag = video.tags.some(t => t.id === tagId);
+                if (bulkMode) {
+                    // Bulk mode: Tag all untagged videos from the same channel
+                    const channelVideos = allVideos.filter(v =>
+                        v.channel_title === video.channel_title &&
+                        v.tags.length === 0
+                    );
 
-                if (hasTag) {
+                    if (channelVideos.length === 0) {
+                        showError('No untagged videos from this channel');
+                        return;
+                    }
+
+                    // Insert tags for all untagged videos from this channel
+                    const inserts = channelVideos.map(v => ({
+                        video_id: v.video_id,
+                        tag_id: tagId
+                    }));
+
                     const { error } = await supabaseClient
                         .from('video_tags')
-                        .delete()
-                        .eq('video_id', video.video_id)
-                        .eq('tag_id', tagId);
+                        .insert(inserts);
 
                     if (error) throw error;
+
+                    showError(`Tagged ${channelVideos.length} videos from ${video.channel_title}`);
                 } else {
-                    const { error } = await supabaseClient
-                        .from('video_tags')
-                        .insert({ video_id: video.video_id, tag_id: tagId });
+                    // Single mode: Toggle tag on current video
+                    const hasTag = video.tags.some(t => t.id === tagId);
 
-                    if (error) throw error;
+                    if (hasTag) {
+                        const { error } = await supabaseClient
+                            .from('video_tags')
+                            .delete()
+                            .eq('video_id', video.video_id)
+                            .eq('tag_id', tagId);
+
+                        if (error) throw error;
+                    } else {
+                        const { error } = await supabaseClient
+                            .from('video_tags')
+                            .insert({ video_id: video.video_id, tag_id: tagId });
+
+                        if (error) throw error;
+                    }
                 }
 
                 await loadVideos();
@@ -578,23 +712,47 @@
 
         // Keyboard navigation
         document.addEventListener('keydown', (e) => {
+            // Ignore if user is typing in an input field
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                return;
+            }
+
             if (e.key === 'j') {
+                e.preventDefault();
                 selectedIndex = Math.min(selectedIndex + 1, videos.length - 1);
                 renderVideos();
+                scrollToSelectedVideo();
             } else if (e.key === 'k') {
+                e.preventDefault();
                 selectedIndex = Math.max(selectedIndex - 1, 0);
                 renderVideos();
+                scrollToSelectedVideo();
             } else if (e.key === 'u') {
                 unlikeVideo();
             } else if (e.key === 'Enter') {
                 const video = videos[selectedIndex];
                 if (video) window.open(video.url, '_blank');
             } else {
-                // Check for tag keystrokes
+                // Check for tag keystrokes with double-press detection
                 const tag = tags.find(t => t.keystroke === e.key);
-                if (tag) toggleTag(tag.id);
+                if (tag) {
+                    const now = Date.now();
+                    const isDoublePress = lastKeyPress === e.key && (now - lastKeyPressTime) < 500;
+
+                    lastKeyPress = e.key;
+                    lastKeyPressTime = now;
+
+                    toggleTag(tag.id, isDoublePress);
+                }
             }
         });
+
+        function scrollToSelectedVideo() {
+            const selectedEl = document.querySelector('.video.selected');
+            if (selectedEl) {
+                selectedEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        }
 
         function showError(message) {
             const errorEl = document.getElementById('error');
@@ -635,10 +793,18 @@
             if (document.getElementById('filter-liked')?.checked) statusFilters.push('liked');
             if (document.getElementById('filter-pending-unlike')?.checked) statusFilters.push('unliked');
 
+            // Get untagged filter
+            const untaggedFilter = document.getElementById('filter-untagged')?.checked || false;
+
             // Filter videos
             videos = allVideos.filter(video => {
                 // Status filter
                 const matchesStatus = statusFilters.length === 0 || statusFilters.includes(video.liked_status);
+
+                // Untagged filter takes priority
+                if (untaggedFilter) {
+                    return matchesStatus && video.tags.length === 0;
+                }
 
                 // Tag filter (if tags selected, video must have at least one of them)
                 const matchesTags = activeFilters.tags.length === 0 ||
@@ -649,6 +815,13 @@
 
             selectedIndex = Math.min(selectedIndex, Math.max(0, videos.length - 1));
             renderVideos();
+        }
+
+        function toggleUntaggedFilter() {
+            const checkbox = document.getElementById('filter-untagged');
+            checkbox.checked = !checkbox.checked;
+            activeFilters.untagged = checkbox.checked;
+            applyFilters();
         }
 
         function copyUrl(url, event) {
@@ -666,8 +839,59 @@
         }
 
         function showAddTagModal() {
-            showError('Add tag feature coming soon!');
+            document.getElementById('addTagModal').classList.add('show');
+            document.getElementById('tagName').focus();
         }
+
+        function closeAddTagModal() {
+            document.getElementById('addTagModal').classList.remove('show');
+            document.getElementById('addTagForm').reset();
+        }
+
+        async function handleAddTag(event) {
+            event.preventDefault();
+
+            const name = document.getElementById('tagName').value.trim();
+            const keystroke = document.getElementById('tagKeystroke').value.trim().toLowerCase();
+            const color = document.getElementById('tagColor').value;
+
+            // Validate keystroke is not already used
+            if (tags.some(t => t.keystroke === keystroke)) {
+                showError(`Keystroke '${keystroke}' is already in use`);
+                return;
+            }
+
+            try {
+                const { data, error } = await supabaseClient
+                    .from('tags')
+                    .insert({ name, keystroke, color })
+                    .select();
+
+                if (error) throw error;
+
+                closeAddTagModal();
+                showError(`Tag '${name}' added successfully!`);
+
+                // Reload tags
+                const { data: tagsData, error: tagsError } = await supabaseClient
+                    .from('tags')
+                    .select('*')
+                    .order('id');
+
+                if (tagsError) throw tagsError;
+                tags = tagsData;
+                renderTags();
+            } catch (error) {
+                showError(error.message);
+            }
+        }
+
+        // Close modal when clicking outside
+        document.getElementById('addTagModal').addEventListener('click', (e) => {
+            if (e.target.id === 'addTagModal') {
+                closeAddTagModal();
+            }
+        });
 
     </script>
 </body>
