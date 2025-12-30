@@ -424,10 +424,6 @@
                                 <label for="filter-liked">Liked</label>
                             </div>
                             <div class="filter-item">
-                                <input type="checkbox" id="filter-pending-unlike" onchange="applyFilters()">
-                                <label for="filter-pending-unlike">Pending Unlike</label>
-                            </div>
-                            <div class="filter-item">
                                 <input type="checkbox" id="filter-has-captions" onchange="applyFilters()">
                                 <label for="filter-has-captions">Has Captions</label>
                             </div>
@@ -615,11 +611,9 @@
             }
 
             container.innerHTML = videos.map((video, index) => {
-                // Determine status label
+                // Show "untagged" label only if video has no tags
                 let statusLabel = '';
-                if (video.liked_status === 'unliked') {
-                    statusLabel = '<span class="video-status-label pending-unlike">pending unlike</span>';
-                } else if (video.tags.length === 0) {
+                if (video.tags.length === 0) {
                     statusLabel = '<span class="video-status-label">untagged</span>';
                 }
 
@@ -668,6 +662,10 @@
             if (!video) return;
 
             try {
+                // Find the tag being applied
+                const selectedTag = tags.find(t => t.id === tagId);
+                const isPendingUnlike = selectedTag && selectedTag.name.toLowerCase().includes('pending unlike');
+
                 if (bulkMode) {
                     // Bulk mode: Tag all untagged videos from the same channel
                     const channelVideos = allVideos.filter(v =>
@@ -692,6 +690,12 @@
                         await supabaseClient
                             .from('video_tags')
                             .insert({ video_id: v.video_id, tag_id: tagId });
+
+                        // Update liked_status based on tag
+                        await supabaseClient
+                            .from('videos')
+                            .update({ liked_status: isPendingUnlike ? 'unliked' : 'liked' })
+                            .eq('video_id', v.video_id);
                     }
 
                     showError(`Tagged ${channelVideos.length} videos from ${video.channel_title}`);
@@ -711,6 +715,14 @@
                         .insert({ video_id: video.video_id, tag_id: tagId });
 
                     if (insertError) throw insertError;
+
+                    // Update liked_status: 'unliked' if "Pending Unlike" tag, 'liked' otherwise
+                    const { error: updateError } = await supabaseClient
+                        .from('videos')
+                        .update({ liked_status: isPendingUnlike ? 'unliked' : 'liked' })
+                        .eq('video_id', video.video_id);
+
+                    if (updateError) throw updateError;
                 }
 
                 await loadVideos();
@@ -835,18 +847,20 @@
         }
 
         function applyFilters() {
-            // Get status filters
+            // Get status filters (only "Liked" now, no "Pending Unlike")
             const statusFilters = [];
             if (document.getElementById('filter-liked')?.checked) statusFilters.push('liked');
-            if (document.getElementById('filter-pending-unlike')?.checked) statusFilters.push('unliked');
 
             // Get untagged filter
             const untaggedFilter = document.getElementById('filter-untagged')?.checked || false;
 
             // Filter videos
             videos = allVideos.filter(video => {
-                // Status filter
-                const matchesStatus = statusFilters.length === 0 || statusFilters.includes(video.liked_status);
+                // Status filter - but we'll show both liked and unliked if "Liked" is checked
+                // because unliked videos are just tagged as "Pending Unlike"
+                const matchesStatus = statusFilters.length === 0 ||
+                    statusFilters.includes(video.liked_status) ||
+                    (statusFilters.includes('liked') && video.liked_status === 'unliked');
 
                 // Tag filter logic: Show video if ANY of these conditions match:
                 // 1. No tag filters are active (show all)
