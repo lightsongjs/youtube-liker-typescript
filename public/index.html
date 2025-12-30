@@ -21,6 +21,73 @@
             max-width: 1200px;
             margin: 0 auto;
         }
+        .login-container {
+            max-width: 300px;
+            margin: 150px auto;
+            padding: 30px;
+            background: #292a2d;
+            border-radius: 8px;
+        }
+        .login-form {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .login-form input {
+            padding: 10px;
+            background: #202124;
+            border: 1px solid #5f6368;
+            border-radius: 4px;
+            color: #e8eaed;
+            font-size: 14px;
+        }
+        .login-form button {
+            padding: 10px;
+            background: #8ab4f8;
+            color: #202124;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .login-error {
+            color: #f28b82;
+            font-size: 12px;
+            display: none;
+        }
+        .login-error.show {
+            display: block;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .logout-btn {
+            padding: 8px 16px;
+            background: #3c4043;
+            color: #e8eaed;
+            border: 1px solid #5f6368;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .logout-btn:hover {
+            background: #5f6368;
+        }
+        #app {
+            display: none;
+        }
+        #app.show {
+            display: block;
+        }
+        #login {
+            display: none;
+        }
+        #login.show {
+            display: block;
+        }
         h1 {
             margin-bottom: 20px;
             font-size: 24px;
@@ -109,15 +176,33 @@
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>YouTube Liked Videos Manager</h1>
+    <!-- Login Screen -->
+    <div id="login" class="show">
+        <div class="login-container">
+            <div class="login-error" id="loginError"></div>
+            <form class="login-form" id="loginForm">
+                <input type="email" id="email" placeholder="Email" required>
+                <input type="password" id="password" placeholder="Password" required>
+                <button type="submit">Login</button>
+            </form>
+        </div>
+    </div>
 
-        <div class="tags" id="tags"></div>
+    <!-- Main App (hidden until logged in) -->
+    <div id="app">
+        <div class="container">
+            <div class="header">
+                <h1>YouTube Liked Videos Manager</h1>
+                <button class="logout-btn" id="logoutBtn">Sign Out</button>
+            </div>
 
-        <div id="error" class="error" style="display:none;"></div>
+            <div class="tags" id="tags"></div>
 
-        <div class="videos" id="videos">
-            <div class="loading">Loading videos...</div>
+            <div id="error" class="error" style="display:none;"></div>
+
+            <div class="videos" id="videos">
+                <div class="loading">Loading videos...</div>
+            </div>
         </div>
     </div>
 
@@ -138,6 +223,43 @@
         let videos = [];
         let tags = [];
         let selectedIndex = 0;
+
+        // Authentication
+        async function checkAuth() {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+                document.getElementById('login').classList.remove('show');
+                document.getElementById('app').classList.add('show');
+                init();
+            } else {
+                document.getElementById('login').classList.add('show');
+                document.getElementById('app').classList.remove('show');
+            }
+        }
+
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const errorEl = document.getElementById('loginError');
+
+            try {
+                const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+                if (error) throw error;
+                checkAuth();
+            } catch (error) {
+                errorEl.textContent = error.message;
+                errorEl.classList.add('show');
+            }
+        });
+
+        document.getElementById('logoutBtn').addEventListener('click', async () => {
+            await supabase.auth.signOut();
+            checkAuth();
+        });
+
+        // Check auth on load
+        checkAuth();
 
         // Load initial data
         async function init() {
@@ -307,8 +429,6 @@
             return div.innerHTML;
         }
 
-        // Initialize on load
-        init();
     </script>
 </body>
 </html>
