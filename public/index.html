@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Liked Videos Manager</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #202124;
+            color: #e8eaed;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            margin-bottom: 20px;
+            font-size: 24px;
+        }
+        .tags {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .tag {
+            padding: 8px 16px;
+            border-radius: 16px;
+            font-size: 14px;
+            cursor: pointer;
+            border: 1px solid #5f6368;
+        }
+        .tag:hover {
+            border-color: #8ab4f8;
+        }
+        .videos {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .video {
+            padding: 16px;
+            background: #292a2d;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .video:hover {
+            background: #3c4043;
+        }
+        .video.selected {
+            background: #3c4043;
+            border-left: 4px solid #8ab4f8;
+        }
+        .video-title {
+            font-size: 16px;
+            margin-bottom: 8px;
+        }
+        .video-channel {
+            font-size: 14px;
+            color: #9aa0a6;
+        }
+        .video-tags {
+            display: flex;
+            gap: 6px;
+            margin-top: 8px;
+        }
+        .video-tag {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #9aa0a6;
+        }
+        .error {
+            background: #5f2120;
+            color: #f28b82;
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .help {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #292a2d;
+            border: 1px solid #5f6368;
+            border-radius: 8px;
+            padding: 16px;
+            font-size: 12px;
+        }
+        .help kbd {
+            background: #3c4043;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin: 0 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>YouTube Liked Videos Manager</h1>
+
+        <div class="tags" id="tags"></div>
+
+        <div id="error" class="error" style="display:none;"></div>
+
+        <div class="videos" id="videos">
+            <div class="loading">Loading videos...</div>
+        </div>
+    </div>
+
+    <div class="help">
+        <div><kbd>j</kbd> / <kbd>k</kbd> Navigate</div>
+        <div><kbd>u</kbd> Unlike video</div>
+        <div><kbd>c</kbd> Mark needs caption</div>
+        <div><kbd>Enter</kbd> Open video</div>
+    </div>
+
+    <script>
+        // Supabase configuration
+        const SUPABASE_URL = 'https://xtvusvangjsqxsxcqnte.supabase.co';
+        const SUPABASE_ANON_KEY = 'YOUR_ANON_KEY'; // Will be added from Supabase dashboard
+
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        let videos = [];
+        let tags = [];
+        let selectedIndex = 0;
+
+        // Load initial data
+        async function init() {
+            try {
+                // Load tags
+                const { data: tagsData, error: tagsError } = await supabase
+                    .from('tags')
+                    .select('*')
+                    .order('id');
+
+                if (tagsError) throw tagsError;
+                tags = tagsData;
+                renderTags();
+
+                // Load videos
+                await loadVideos();
+            } catch (error) {
+                showError(error.message);
+            }
+        }
+
+        async function loadVideos() {
+            try {
+                const { data, error } = await supabase
+                    .from('videos')
+                    .select(`
+                        *,
+                        video_tags (
+                            tag_id,
+                            tags (*)
+                        )
+                    `)
+                    .eq('liked_status', 'liked')
+                    .order('saved_at', { ascending: false })
+                    .limit(50);
+
+                if (error) throw error;
+
+                videos = data.map(v => ({
+                    ...v,
+                    tags: v.video_tags?.map(vt => vt.tags) || []
+                }));
+
+                renderVideos();
+            } catch (error) {
+                showError(error.message);
+            }
+        }
+
+        function renderTags() {
+            const container = document.getElementById('tags');
+            container.innerHTML = tags.map(tag => `
+                <div class="tag" style="background-color: ${tag.color}" data-id="${tag.id}">
+                    ${tag.name} (${tag.keystroke})
+                </div>
+            `).join('');
+        }
+
+        function renderVideos() {
+            const container = document.getElementById('videos');
+            if (videos.length === 0) {
+                container.innerHTML = '<div class="loading">No videos found</div>';
+                return;
+            }
+
+            container.innerHTML = videos.map((video, index) => `
+                <div class="video ${index === selectedIndex ? 'selected' : ''}" data-index="${index}">
+                    <div class="video-title">${escapeHtml(video.title)}</div>
+                    <div class="video-channel">${escapeHtml(video.channel_title || '')}</div>
+                    <div class="video-tags">
+                        ${video.tags.map(tag => `
+                            <span class="video-tag" style="background-color: ${tag.color}">
+                                ${tag.name}
+                            </span>
+                        `).join('')}
+                    </div>
+                </div>
+            `).join('');
+
+            // Add click handlers
+            document.querySelectorAll('.video').forEach((el, index) => {
+                el.addEventListener('click', () => selectVideo(index));
+            });
+        }
+
+        function selectVideo(index) {
+            selectedIndex = index;
+            renderVideos();
+        }
+
+        async function toggleTag(tagId) {
+            const video = videos[selectedIndex];
+            if (!video) return;
+
+            try {
+                const hasTag = video.tags.some(t => t.id === tagId);
+
+                if (hasTag) {
+                    const { error } = await supabase
+                        .from('video_tags')
+                        .delete()
+                        .eq('video_id', video.video_id)
+                        .eq('tag_id', tagId);
+
+                    if (error) throw error;
+                } else {
+                    const { error } = await supabase
+                        .from('video_tags')
+                        .insert({ video_id: video.video_id, tag_id: tagId });
+
+                    if (error) throw error;
+                }
+
+                await loadVideos();
+            } catch (error) {
+                showError(error.message);
+            }
+        }
+
+        async function unlikeVideo() {
+            const video = videos[selectedIndex];
+            if (!video) return;
+
+            try {
+                const { error } = await supabase
+                    .from('videos')
+                    .update({ liked_status: 'unliked' })
+                    .eq('video_id', video.video_id);
+
+                if (error) throw error;
+                await loadVideos();
+            } catch (error) {
+                showError(error.message);
+            }
+        }
+
+        // Keyboard navigation
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'j') {
+                selectedIndex = Math.min(selectedIndex + 1, videos.length - 1);
+                renderVideos();
+            } else if (e.key === 'k') {
+                selectedIndex = Math.max(selectedIndex - 1, 0);
+                renderVideos();
+            } else if (e.key === 'u') {
+                unlikeVideo();
+            } else if (e.key === 'Enter') {
+                const video = videos[selectedIndex];
+                if (video) window.open(video.url, '_blank');
+            } else {
+                // Check for tag keystrokes
+                const tag = tags.find(t => t.keystroke === e.key);
+                if (tag) toggleTag(tag.id);
+            }
+        });
+
+        function showError(message) {
+            const errorEl = document.getElementById('error');
+            errorEl.textContent = message;
+            errorEl.style.display = 'block';
+            setTimeout(() => errorEl.style.display = 'none', 5000);
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Initialize on load
+        init();
+    </script>
+</body>
+</html>
