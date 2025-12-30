@@ -491,7 +491,7 @@
         let activeFilters = {
             status: ['liked'],
             tags: [],
-            untagged: false
+            untagged: true  // Default to showing untagged
         };
         let lastKeyPress = null;
         let lastKeyPressTime = 0;
@@ -545,6 +545,10 @@
                 if (tagsError) throw tagsError;
                 tags = tagsData;
                 renderTags();
+
+                // Set default filters
+                document.getElementById('filter-liked').checked = true;
+                document.getElementById('filter-untagged').checked = true;
 
                 // Load videos
                 await loadVideos();
@@ -704,7 +708,17 @@
                     .eq('video_id', video.video_id);
 
                 if (error) throw error;
-                await loadVideos();
+
+                // Remove from allVideos array immediately
+                allVideos = allVideos.filter(v => v.video_id !== video.video_id);
+
+                // Reapply filters to update the view
+                applyFilters();
+
+                // Adjust selected index if needed
+                if (selectedIndex >= videos.length && videos.length > 0) {
+                    selectedIndex = videos.length - 1;
+                }
             } catch (error) {
                 showError(error.message);
             }
@@ -717,35 +731,46 @@
                 return;
             }
 
-            if (e.key === 'j') {
+            if (e.key === 'j' || e.key === 'J') {
                 e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
                 selectedIndex = Math.min(selectedIndex + 1, videos.length - 1);
                 renderVideos();
                 scrollToSelectedVideo();
-            } else if (e.key === 'k') {
+            } else if (e.key === 'k' || e.key === 'K') {
                 e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
                 selectedIndex = Math.max(selectedIndex - 1, 0);
                 renderVideos();
                 scrollToSelectedVideo();
-            } else if (e.key === 'u') {
+            } else if (e.key === 'u' || e.key === 'U') {
+                e.preventDefault();
+                e.stopPropagation();
                 unlikeVideo();
             } else if (e.key === 'Enter') {
                 const video = videos[selectedIndex];
-                if (video) window.open(video.url, '_blank');
+                if (video) {
+                    e.preventDefault();
+                    window.open(video.url, '_blank');
+                }
             } else {
                 // Check for tag keystrokes with double-press detection
-                const tag = tags.find(t => t.keystroke === e.key);
+                const tag = tags.find(t => t.keystroke === e.key.toLowerCase());
                 if (tag) {
+                    e.preventDefault();
+                    e.stopPropagation();
                     const now = Date.now();
-                    const isDoublePress = lastKeyPress === e.key && (now - lastKeyPressTime) < 500;
+                    const isDoublePress = lastKeyPress === e.key.toLowerCase() && (now - lastKeyPressTime) < 500;
 
-                    lastKeyPress = e.key;
+                    lastKeyPress = e.key.toLowerCase();
                     lastKeyPressTime = now;
 
                     toggleTag(tag.id, isDoublePress);
                 }
             }
-        });
+        }, true);
 
         function scrollToSelectedVideo() {
             const selectedEl = document.querySelector('.video.selected');
@@ -773,16 +798,21 @@
         }
 
         function toggleTagFilter(tagId) {
-            const checkbox = document.getElementById(`tag-${tagId}`);
-            checkbox.checked = !checkbox.checked;
+            // Uncheck all other tag filters (mutually exclusive)
+            const untaggedCheckbox = document.getElementById('filter-untagged');
+            untaggedCheckbox.checked = false;
+            activeFilters.untagged = false;
 
-            if (checkbox.checked) {
-                if (!activeFilters.tags.includes(tagId)) {
-                    activeFilters.tags.push(tagId);
-                }
-            } else {
-                activeFilters.tags = activeFilters.tags.filter(id => id !== tagId);
-            }
+            // Uncheck all tag checkboxes
+            tags.forEach(tag => {
+                const cb = document.getElementById(`tag-${tag.id}`);
+                if (cb) cb.checked = false;
+            });
+
+            // Check the clicked one
+            const checkbox = document.getElementById(`tag-${tagId}`);
+            checkbox.checked = true;
+            activeFilters.tags = [tagId];
 
             applyFilters();
         }
@@ -818,9 +848,18 @@
         }
 
         function toggleUntaggedFilter() {
+            // Uncheck all tag checkboxes (mutually exclusive)
+            tags.forEach(tag => {
+                const cb = document.getElementById(`tag-${tag.id}`);
+                if (cb) cb.checked = false;
+            });
+            activeFilters.tags = [];
+
+            // Toggle untagged
             const checkbox = document.getElementById('filter-untagged');
             checkbox.checked = !checkbox.checked;
             activeFilters.untagged = checkbox.checked;
+
             applyFilters();
         }
 
