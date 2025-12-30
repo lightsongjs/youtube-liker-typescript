@@ -252,6 +252,18 @@
             color: #202124;
             font-weight: 500;
         }
+        .video-status-label {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            background-color: #5f6368;
+            color: #e8eaed;
+            font-weight: 500;
+        }
+        .video-status-label.pending-unlike {
+            background-color: #f28b82;
+            color: #202124;
+        }
         .video-actions {
             display: flex;
             gap: 8px;
@@ -602,28 +614,39 @@
                 return;
             }
 
-            container.innerHTML = videos.map((video, index) => `
-                <div class="video ${index === selectedIndex ? 'selected' : ''}" data-index="${index}">
-                    <img class="video-thumbnail"
-                         src="https://i.ytimg.com/vi/${video.video_id}/mqdefault.jpg"
-                         alt="${escapeHtml(video.title)}"
-                         onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22160%22 height=%2290%22%3E%3Crect fill=%22%233c4043%22 width=%22160%22 height=%2290%22/%3E%3C/svg%3E'">
-                    <div class="video-info">
-                        <div class="video-title">${escapeHtml(video.title)}</div>
-                        <div class="video-channel">${escapeHtml(video.channel_title || 'Unknown Channel')}</div>
-                        <div class="video-tags">
-                            ${video.tags.map(tag => `
-                                <span class="video-tag" style="background-color: ${tag.color}">
-                                    ${tag.name}
-                                </span>
-                            `).join('')}
-                        </div>
-                        <div class="video-actions">
-                            <button class="copy-url-btn" onclick="copyUrl('${video.url}', event)">Copy URL</button>
+            container.innerHTML = videos.map((video, index) => {
+                // Determine status label
+                let statusLabel = '';
+                if (video.liked_status === 'unliked') {
+                    statusLabel = '<span class="video-status-label pending-unlike">pending unlike</span>';
+                } else if (video.tags.length === 0) {
+                    statusLabel = '<span class="video-status-label">untagged</span>';
+                }
+
+                return `
+                    <div class="video ${index === selectedIndex ? 'selected' : ''}" data-index="${index}">
+                        <img class="video-thumbnail"
+                             src="https://i.ytimg.com/vi/${video.video_id}/mqdefault.jpg"
+                             alt="${escapeHtml(video.title)}"
+                             onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22160%22 height=%2290%22%3E%3Crect fill=%22%233c4043%22 width=%22160%22 height=%2290%22/%3E%3C/svg%3E'">
+                        <div class="video-info">
+                            <div class="video-title">${escapeHtml(video.title)}</div>
+                            <div class="video-channel">${escapeHtml(video.channel_title || 'Unknown Channel')}</div>
+                            <div class="video-tags">
+                                ${statusLabel}
+                                ${video.tags.map(tag => `
+                                    <span class="video-tag" style="background-color: ${tag.color}">
+                                        ${tag.name}
+                                    </span>
+                                `).join('')}
+                            </div>
+                            <div class="video-actions">
+                                <button class="copy-url-btn" onclick="copyUrl('${video.url}', event)">Copy URL</button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            `).join('');
+                `;
+            }).join('');
 
             // Add click handlers
             document.querySelectorAll('.video').forEach((el, index) => {
@@ -798,21 +821,16 @@
         }
 
         function toggleTagFilter(tagId) {
-            // Uncheck all other tag filters (mutually exclusive)
-            const untaggedCheckbox = document.getElementById('filter-untagged');
-            untaggedCheckbox.checked = false;
-            activeFilters.untagged = false;
-
-            // Uncheck all tag checkboxes
-            tags.forEach(tag => {
-                const cb = document.getElementById(`tag-${tag.id}`);
-                if (cb) cb.checked = false;
-            });
-
-            // Check the clicked one
             const checkbox = document.getElementById(`tag-${tagId}`);
-            checkbox.checked = true;
-            activeFilters.tags = [tagId];
+            checkbox.checked = !checkbox.checked;
+
+            if (checkbox.checked) {
+                if (!activeFilters.tags.includes(tagId)) {
+                    activeFilters.tags.push(tagId);
+                }
+            } else {
+                activeFilters.tags = activeFilters.tags.filter(id => id !== tagId);
+            }
 
             applyFilters();
         }
@@ -831,14 +849,17 @@
                 // Status filter
                 const matchesStatus = statusFilters.length === 0 || statusFilters.includes(video.liked_status);
 
-                // Untagged filter takes priority
-                if (untaggedFilter) {
-                    return matchesStatus && video.tags.length === 0;
-                }
+                // Tag filter logic: Show video if ANY of these conditions match:
+                // 1. No tag filters are active (show all)
+                // 2. Untagged is checked AND video has no tags
+                // 3. Video has at least one of the selected tags
 
-                // Tag filter (if tags selected, video must have at least one of them)
-                const matchesTags = activeFilters.tags.length === 0 ||
+                const noTagFiltersActive = !untaggedFilter && activeFilters.tags.length === 0;
+                const matchesUntagged = untaggedFilter && video.tags.length === 0;
+                const matchesSelectedTags = activeFilters.tags.length > 0 &&
                     video.tags.some(tag => activeFilters.tags.includes(tag.id));
+
+                const matchesTags = noTagFiltersActive || matchesUntagged || matchesSelectedTags;
 
                 return matchesStatus && matchesTags;
             });
@@ -848,18 +869,9 @@
         }
 
         function toggleUntaggedFilter() {
-            // Uncheck all tag checkboxes (mutually exclusive)
-            tags.forEach(tag => {
-                const cb = document.getElementById(`tag-${tag.id}`);
-                if (cb) cb.checked = false;
-            });
-            activeFilters.tags = [];
-
-            // Toggle untagged
             const checkbox = document.getElementById('filter-untagged');
             checkbox.checked = !checkbox.checked;
             activeFilters.untagged = checkbox.checked;
-
             applyFilters();
         }
 
