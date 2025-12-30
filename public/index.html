@@ -680,38 +680,37 @@
                         return;
                     }
 
-                    // Insert tags for all untagged videos from this channel
-                    const inserts = channelVideos.map(v => ({
-                        video_id: v.video_id,
-                        tag_id: tagId
-                    }));
+                    // For each video, remove all existing tags and add the new one
+                    for (const v of channelVideos) {
+                        // Delete all existing tags
+                        await supabaseClient
+                            .from('video_tags')
+                            .delete()
+                            .eq('video_id', v.video_id);
 
-                    const { error } = await supabaseClient
-                        .from('video_tags')
-                        .insert(inserts);
-
-                    if (error) throw error;
+                        // Insert new tag
+                        await supabaseClient
+                            .from('video_tags')
+                            .insert({ video_id: v.video_id, tag_id: tagId });
+                    }
 
                     showError(`Tagged ${channelVideos.length} videos from ${video.channel_title}`);
                 } else {
-                    // Single mode: Toggle tag on current video
-                    const hasTag = video.tags.some(t => t.id === tagId);
+                    // Single mode: Replace all tags with the new tag
+                    // First, delete ALL existing tags for this video
+                    const { error: deleteError } = await supabaseClient
+                        .from('video_tags')
+                        .delete()
+                        .eq('video_id', video.video_id);
 
-                    if (hasTag) {
-                        const { error } = await supabaseClient
-                            .from('video_tags')
-                            .delete()
-                            .eq('video_id', video.video_id)
-                            .eq('tag_id', tagId);
+                    if (deleteError) throw deleteError;
 
-                        if (error) throw error;
-                    } else {
-                        const { error } = await supabaseClient
-                            .from('video_tags')
-                            .insert({ video_id: video.video_id, tag_id: tagId });
+                    // Then, insert the new tag
+                    const { error: insertError } = await supabaseClient
+                        .from('video_tags')
+                        .insert({ video_id: video.video_id, tag_id: tagId });
 
-                        if (error) throw error;
-                    }
+                    if (insertError) throw insertError;
                 }
 
                 await loadVideos();
