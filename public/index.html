@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>YouTube Liked Videos Manager</title>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabaseClient/supabaseClient-js@2"></script>
     <style>
         * {
             margin: 0;
@@ -215,7 +215,7 @@
 
     <script>
         // Supabase configuration
-        const SUPABASE_URL = 'https://xtvusvangjsqxsxcqnte.supabase.co';
+        const SUPABASE_URL = 'https://xtvusvangjsqxsxcqnte.supabaseClient.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh0dnVzdmFuZ2pzcXhzeGNxbnRlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcwOTA3NjYsImV4cCI6MjA4MjY2Njc2Nn0.79uMAFgzGBrwynlfQmY7ZnAKOTZejdvJiWciHxeQHXA';
 
         const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -265,7 +265,7 @@
         async function init() {
             try {
                 // Load tags
-                const { data: tagsData, error: tagsError } = await supabase
+                const { data: tagsData, error: tagsError } = await supabaseClient
                     .from('tags')
                     .select('*')
                     .order('id');
@@ -283,7 +283,7 @@
 
         async function loadVideos() {
             try {
-                const { data, error } = await supabase
+                const { data, error } = await supabaseClient
                     .from('videos')
                     .select(`
                         *,
@@ -358,7 +358,7 @@
                 const hasTag = video.tags.some(t => t.id === tagId);
 
                 if (hasTag) {
-                    const { error } = await supabase
+                    const { error } = await supabaseClient
                         .from('video_tags')
                         .delete()
                         .eq('video_id', video.video_id)
@@ -366,7 +366,7 @@
 
                     if (error) throw error;
                 } else {
-                    const { error } = await supabase
+                    const { error } = await supabaseClient
                         .from('video_tags')
                         .insert({ video_id: video.video_id, tag_id: tagId });
 
@@ -384,7 +384,7 @@
             if (!video) return;
 
             try {
-                const { error } = await supabase
+                const { error } = await supabaseClient
                     .from('videos')
                     .update({ liked_status: 'unliked' })
                     .eq('video_id', video.video_id);
